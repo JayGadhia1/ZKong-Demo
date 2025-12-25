@@ -186,33 +186,49 @@ class ZKongClient:
                     data = response.json()
                     
                     # Check if login was successful
-                    if data.get("success") is False or data.get("code") not in [200, 10000]:
+                    # ZKong API returns success: true and code: 14014 for successful login
+                    if data.get("success") is False:
                         if endpoint == endpoints[-1]:  # Last endpoint
                             raise ZKongAuthenticationError(
                                 f"Authentication failed: {data.get('message')}"
                             )
                         continue  # Try next endpoint
                     
-                    # Success - extract token
-                    token_data = data.get("data", {})
-                    if isinstance(token_data, dict):
-                        token = token_data.get("token") or token_data.get("access_token")
-                    else:
-                        token = None
-                    
-                    if not token:
+                    # If success is True, proceed regardless of code value
+                    if data.get("success") is True:
+                        # Success - proceed to extract token
+                        pass
+                    elif data.get("code") not in [200, 10000]:
+                        # Legacy check for code-based success
                         if endpoint == endpoints[-1]:
-                            raise ZKongAuthenticationError("Token not found in authentication response")
+                            raise ZKongAuthenticationError(
+                                f"Authentication failed: {data.get('message')}"
+                            )
                         continue
                     
-                    # Cache token
-                    self._auth_token = token
-                    expires_in = token_data.get("expires_in", 3600) if isinstance(token_data, dict) else 3600
-                    import time
-                    self._token_expires_at = time.time() + expires_in
+                    # Success - extract token (if present) or use cookie-based auth
+                    token_data = data.get("data", {})
+                    token = None
                     
-                    logger.info("Successfully authenticated with ZKong API", endpoint=endpoint)
-                    return token
+                    if isinstance(token_data, dict):
+                        token = token_data.get("token") or token_data.get("access_token")
+                    
+                    # ZKong may use cookie-based authentication (httpx client maintains cookies automatically)
+                    # If no token is present, we'll rely on session cookies
+                    if token:
+                        # Cache token if present
+                        self._auth_token = token
+                        expires_in = token_data.get("expires_in", 3600) if isinstance(token_data, dict) else 3600
+                        import time
+                        self._token_expires_at = time.time() + expires_in
+                        logger.info("Successfully authenticated with ZKong API (token-based)", endpoint=endpoint)
+                        return token
+                    else:
+                        # Cookie-based authentication - httpx client maintains cookies automatically
+                        import time
+                        self._token_expires_at = time.time() + 3600  # Default 1 hour session
+                        logger.info("Successfully authenticated with ZKong API (cookie-based)", endpoint=endpoint)
+                        return "cookie_session"  # Placeholder to indicate successful auth
                     
                 except httpx.HTTPStatusError as e:
                     last_error = e
@@ -317,10 +333,13 @@ class ZKongClient:
                 "itemList": item_list  # Required: List of items
             }
             
+            # Build headers - only include Authorization if we have a real token
             headers = {
-                "Authorization": f"Bearer {self._auth_token}",
                 "Content-Type": "application/json;charset=utf-8"
             }
+            # Add Authorization header only if we have a real token (not cookie_session placeholder)
+            if self._auth_token and self._auth_token != "cookie_session":
+                headers["Authorization"] = f"Bearer {self._auth_token}"
             
             # ZKong API endpoint: /zk/item/batchImportItem
             response = await self.client.post(
@@ -380,10 +399,13 @@ class ZKongClient:
                 "image_url": image_url
             }
             
+            # Build headers - only include Authorization if we have a real token
             headers = {
-                "Authorization": f"Bearer {self._auth_token}",
                 "Content-Type": "application/json"
             }
+            # Add Authorization header only if we have a real token (not cookie_session placeholder)
+            if self._auth_token and self._auth_token != "cookie_session":
+                headers["Authorization"] = f"Bearer {self._auth_token}"
             
             response = await self.client.post(
                 "/api/v1/products/images",
