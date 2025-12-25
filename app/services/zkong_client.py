@@ -168,35 +168,67 @@ class ZKongClient:
             encrypted_password = self._encrypt_password(self.password, public_key)
             
             # Login request
+            # Try /zk/user/login first (as shown in Postman testing), fallback to /api/v1/login
             login_data = {
                 "username": self.username,
+                "loginType": 3,  # Login type (3 seems to be for API login)
                 "password": encrypted_password
             }
             
-            response = await self.client.post("/api/v1/login", json=login_data)
-            response.raise_for_status()
+            # Try both endpoints
+            endpoints = ["/zk/user/login", "/api/v1/login"]
+            last_error = None
             
-            data = response.json()
-            if data.get("code") != 200:
-                raise ZKongAuthenticationError(
-                    f"Authentication failed: {data.get('message')}"
-                )
+            for endpoint in endpoints:
+                try:
+                    response = await self.client.post(endpoint, json=login_data)
+                    response.raise_for_status()
+                    data = response.json()
+                    
+                    # Check if login was successful
+                    if data.get("success") is False or data.get("code") not in [200, 10000]:
+                        if endpoint == endpoints[-1]:  # Last endpoint
+                            raise ZKongAuthenticationError(
+                                f"Authentication failed: {data.get('message')}"
+                            )
+                        continue  # Try next endpoint
+                    
+                    # Success - extract token
+                    token_data = data.get("data", {})
+                    if isinstance(token_data, dict):
+                        token = token_data.get("token") or token_data.get("access_token")
+                    else:
+                        token = None
+                    
+                    if not token:
+                        if endpoint == endpoints[-1]:
+                            raise ZKongAuthenticationError("Token not found in authentication response")
+                        continue
+                    
+                    # Cache token
+                    self._auth_token = token
+                    expires_in = token_data.get("expires_in", 3600) if isinstance(token_data, dict) else 3600
+                    import time
+                    self._token_expires_at = time.time() + expires_in
+                    
+                    logger.info("Successfully authenticated with ZKong API", endpoint=endpoint)
+                    return token
+                    
+                except httpx.HTTPStatusError as e:
+                    last_error = e
+                    if endpoint == endpoints[-1]:
+                        raise
+                    continue
+                except Exception as e:
+                    last_error = e
+                    if endpoint == endpoints[-1]:
+                        raise
+                    continue
             
-            # Extract token from response
-            token_data = data.get("data", {})
-            token = token_data.get("token") or token_data.get("access_token")
-            
-            if not token:
-                raise ZKongAuthenticationError("Token not found in authentication response")
-            
-            # Cache token (check expiration if provided)
-            self._auth_token = token
-            expires_in = token_data.get("expires_in", 3600)  # Default 1 hour
-            import time
-            self._token_expires_at = time.time() + expires_in
-            
-            logger.info("Successfully authenticated with ZKong API")
-            return token
+            # If we get here, all endpoints failed
+            if last_error:
+                raise last_error
+            raise ZKongAuthenticationError("Authentication failed on all endpoints")
             
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 401:
