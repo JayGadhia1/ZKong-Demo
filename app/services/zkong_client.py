@@ -44,11 +44,13 @@ class ZKongClient:
         self._auth_token: Optional[str] = None
         self._token_expires_at: Optional[float] = None
         
-        # HTTP client with timeout
+        # HTTP client with timeout and cookie support
+        # ZKong uses cookie-based authentication, so we need to maintain cookies
         self.client = httpx.AsyncClient(
             base_url=self.base_url,
             timeout=httpx.Timeout(30.0),
-            headers={"Content-Type": "application/json"}
+            headers={"Content-Type": "application/json"},
+            follow_redirects=True  # Follow redirects to maintain session
         )
     
     def _encrypt_password(self, password: str, public_key_str: str) -> str:
@@ -206,29 +208,13 @@ class ZKongClient:
                             )
                         continue
                     
-                    # Success - extract token (if present) or use cookie-based auth
-                    token_data = data.get("data", {})
-                    token = None
-                    
-                    if isinstance(token_data, dict):
-                        token = token_data.get("token") or token_data.get("access_token")
-                    
-                    # ZKong may use cookie-based authentication (httpx client maintains cookies automatically)
-                    # If no token is present, we'll rely on session cookies
-                    if token:
-                        # Cache token if present
-                        self._auth_token = token
-                        expires_in = token_data.get("expires_in", 3600) if isinstance(token_data, dict) else 3600
-                        import time
-                        self._token_expires_at = time.time() + expires_in
-                        logger.info("Successfully authenticated with ZKong API (token-based)", endpoint=endpoint)
-                        return token
-                    else:
-                        # Cookie-based authentication - httpx client maintains cookies automatically
-                        import time
-                        self._token_expires_at = time.time() + 3600  # Default 1 hour session
-                        logger.info("Successfully authenticated with ZKong API (cookie-based)", endpoint=endpoint)
-                        return "cookie_session"  # Placeholder to indicate successful auth
+                    # ZKong uses cookie-based authentication (httpx client maintains cookies automatically)
+                    # The login response doesn't contain a token - authentication is handled via session cookies
+                    import time
+                    self._auth_token = "cookie_session"  # Mark as cookie-based auth
+                    self._token_expires_at = time.time() + 3600  # Default 1 hour session
+                    logger.info("Successfully authenticated with ZKong API (cookie-based)", endpoint=endpoint)
+                    return "cookie_session"  # Placeholder to indicate successful auth
                     
                 except httpx.HTTPStatusError as e:
                     last_error = e
