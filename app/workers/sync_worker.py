@@ -311,43 +311,71 @@ class SyncWorker:
     ):
         """
         Handle delete operation.
-        Finds ZKong product mapping and processes deletion.
+        Attempts to delete product from ZKong using barcode.
         
         Args:
             product: Product to delete
             store_mapping: Store mapping configuration
             queue_item: Queue item being processed
         """
-        # Get ZKong product mapping to see if product exists in ZKong
+        # Get barcode for deletion - required by ZKong API
+        # Try multiple sources: mapping, normalized_data, or product.barcode
+        barcode = None
+        
+        # First, try to get from ZKong mapping if it exists
         zkong_mapping = self.supabase_service.get_zkong_product_by_product_id(
             product.id,  # type: ignore
             store_mapping.id  # type: ignore
         )
         
-        if not zkong_mapping:
-            # Product doesn't exist in ZKong, so deletion is already complete
-            logger.info(
-                "Product not found in ZKong, deletion complete",
-                product_id=str(product.id),
-                source_id=product.source_id
-            )
-            return
+        if zkong_mapping:
+            barcode = zkong_mapping.zkong_barcode
         
-        # Get barcode for deletion - required by ZKong API
-        barcode = zkong_mapping.zkong_barcode or product.barcode
+        # If no mapping or no barcode from mapping, try product fields
         if not barcode:
-            raise Exception("Barcode is required for ZKong product deletion")
+            # Try normalized_data first (most reliable)
+            if product.normalized_data:
+                barcode = product.normalized_data.get("barcode")
+            
+            # Fallback to product.barcode
+            if not barcode:
+                barcode = product.barcode
+            
+            # Last resort: try SKU (some products might use SKU as barcode)
+            if not barcode:
+                if product.normalized_data:
+                    barcode = product.normalized_data.get("sku")
+                if not barcode:
+                    barcode = product.sku
+        
+        if not barcode:
+            # If we have a mapping but no barcode, log warning but still try
+            if zkong_mapping:
+                logger.warning(
+                    "No barcode found for deletion, but ZKong mapping exists",
+                    product_id=str(product.id),
+                    zkong_product_id=zkong_mapping.zkong_product_id
+                )
+            else:
+                logger.warning(
+                    "No barcode found for product deletion, skipping ZKong delete",
+                    product_id=str(product.id),
+                    source_id=product.source_id
+                )
+                # Can't delete without barcode - this is a permanent error
+                raise PermanentError("Barcode is required for ZKong product deletion")
         
         # Log deletion request
         logger.info(
             "Processing product deletion",
             product_id=str(product.id),
-            zkong_product_id=zkong_mapping.zkong_product_id,
-            zkong_barcode=barcode,
-            source_id=product.source_id
+            barcode=barcode,
+            source_id=product.source_id,
+            has_zkong_mapping=bool(zkong_mapping)
         )
         
         # Call ZKong delete API (section 3.2)
+        # Even if we don't have a mapping, the product might exist in ZKong
         response = await self.zkong_client.delete_products_bulk(
             barcodes=[barcode],
             merchant_id=store_mapping.zkong_merchant_id,
@@ -365,6 +393,21 @@ class SyncWorker:
         )
         
         if not is_success:
+            # Check if error is because product doesn't exist (that's okay)
+            error_message = str(response.message or "").lower()
+            if any(phrase in error_message for phrase in [
+                "not found", "不存在", "未找到", "no such", "does not exist"
+            ]):
+                logger.info(
+                    "Product not found in ZKong (may have been already deleted)",
+                    product_id=str(product.id),
+                    barcode=barcode,
+                    response_code=response.code,
+                    response_message=response.message
+                )
+                # Product doesn't exist - deletion is effectively complete
+                return
+            
             raise ZKongAPIError(
                 f"ZKong delete failed: {response.message} (code: {response.code})"
             )
@@ -380,8 +423,8 @@ class SyncWorker:
         logger.info(
             "Product successfully deleted from ZKong",
             product_id=str(product.id),
-            zkong_product_id=zkong_mapping.zkong_product_id,
-            barcode=barcode
+            barcode=barcode,
+            zkong_product_id=zkong_mapping.zkong_product_id if zkong_mapping else None
         )
 
 
