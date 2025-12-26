@@ -625,7 +625,7 @@ class ZKongClient:
                 headers["Authorization"] = self._auth_token
             
             # ZKong API endpoint: /zk/item/batchDeleteltem (note: typo in API docs)
-            endpoint_path = "/zk/item/batchDeleteltem"
+            endpoint_path = "/zk/item/batchDeleteItem"
             full_url = f"{self.base_url}{endpoint_path}"
             
             logger.info(
