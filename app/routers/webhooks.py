@@ -312,13 +312,62 @@ async def shopify_product_delete(
             )
         
         # Find all products with this source_id (all variants)
-        # For simplicity, we'll find and queue each variant
-        # In production, you might want to query Supabase for all variants
+        # A Shopify product can have multiple variants, each stored as a separate product
+        products_to_delete = supabase_service.get_products_by_source_id(
+            "shopify",
+            str(product_data.id)
+        )
+        
+        if not products_to_delete:
+            logger.warning(
+                "No products found for deletion",
+                source_id=str(product_data.id),
+                store_domain=store_domain
+            )
+            return {
+                "status": "success",
+                "message": "No products found to delete",
+                "product_id": product_data.id,
+                "deleted_count": 0
+            }
+        
+        # Queue each product variant for deletion
+        queued_count = 0
+        for product in products_to_delete:
+            if not product.id:
+                logger.warning(
+                    "Product missing ID, skipping deletion queue",
+                    source_id=product.source_id,
+                    source_variant_id=product.source_variant_id
+                )
+                continue
+            
+            try:
+                supabase_service.add_to_sync_queue(
+                    product_id=product.id,
+                    store_mapping_id=store_mapping.id,  # type: ignore
+                    operation="delete"
+                )
+                queued_count += 1
+                logger.info(
+                    "Product queued for deletion",
+                    product_id=str(product.id),
+                    source_id=product.source_id,
+                    source_variant_id=product.source_variant_id
+                )
+            except Exception as e:
+                logger.error(
+                    "Failed to queue product for deletion",
+                    product_id=str(product.id),
+                    error=str(e)
+                )
         
         return {
             "status": "success",
-            "message": "Product deletion queued",
-            "product_id": product_data.id
+            "message": f"Queued {queued_count} product(s) for deletion",
+            "product_id": product_data.id,
+            "deleted_count": queued_count,
+            "total_variants": len(products_to_delete)
         }
         
     except HTTPException:

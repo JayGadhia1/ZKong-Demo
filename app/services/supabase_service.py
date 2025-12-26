@@ -190,6 +190,39 @@ class SupabaseService:
             logger.error("Failed to get product", product_id=str(product_id), error=str(e))
             return None
     
+    def get_products_by_source_id(
+        self,
+        source_system: str,
+        source_id: str
+    ) -> List[Product]:
+        """
+        Get all products by source system and source ID.
+        Used to find all variants of a product when deleting.
+        
+        Args:
+            source_system: Source system name (e.g., 'shopify')
+            source_id: Source product ID
+            
+        Returns:
+            List of Product objects (all variants)
+        """
+        try:
+            result = self.client.table("products").select("*").eq(
+                "source_system", source_system
+            ).eq("source_id", source_id).execute()
+            
+            if result.data:
+                return [Product(**item) for item in result.data]
+            return []
+        except Exception as e:
+            logger.error(
+                "Failed to get products by source ID",
+                source_system=source_system,
+                source_id=source_id,
+                error=str(e)
+            )
+            return []
+    
     # Sync Queue
     
     def add_to_sync_queue(
