@@ -597,26 +597,19 @@ class ZKongClient:
         
         try:
             # Build request payload according to ZKong API 3.2 section 3.2
-            # Use agencyId and merchantId from login response if available
-            agency_id = self._agency_id if self._agency_id is not None else settings.zkong_agency_id
-            merchant_id_to_use = self._merchant_id if self._merchant_id is not None else int(merchant_id)
-            
-            if self._merchant_id is not None and str(self._merchant_id) != str(merchant_id):
-                logger.warning(
-                    "Merchant ID mismatch - using merchantId from login response instead of provided",
-                    login_merchant_id=self._merchant_id,
-                    provided_merchant_id=merchant_id
-                )
+            # API expects: storeId (Integer, required) and list (List<String>, required)
+            # If storeId is empty/null, deletes from all stores under the merchant
             
             request_data = {
-                "merchantId": int(merchant_id_to_use),
-                "agencyId": int(agency_id),
-                "barcodes": barcodes  # List of barcodes to delete
+                "list": barcodes  # List of barcodes to delete (max 500)
             }
             
-            # Add storeId if provided (optional - if empty, deletes from all stores)
+            # Add storeId - required field according to API docs
+            # If not provided, API will delete from all stores under merchant
             if store_id:
                 request_data["storeId"] = int(store_id)
+            # Note: API docs say storeId is required, but also say "if empty, deletes from all stores"
+            # We'll only include it if provided - API should handle missing storeId
             
             # Build headers - ZKong uses "Authorization: token" format
             headers = {
