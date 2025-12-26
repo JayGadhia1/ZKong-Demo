@@ -312,14 +312,13 @@ async def shopify_product_delete(
             )
         
         # Find all products with this source_id (all variants)
-        # A Shopify product can have multiple variants, each stored as a separate product
         products_to_delete = supabase_service.get_products_by_source_id(
             "shopify",
             str(product_data.id)
         )
         
         if not products_to_delete:
-            logger.warning(
+            logger.info(
                 "No products found for deletion",
                 source_id=str(product_data.id),
                 store_domain=store_domain
@@ -337,8 +336,7 @@ async def shopify_product_delete(
             if not product.id:
                 logger.warning(
                     "Product missing ID, skipping deletion queue",
-                    source_id=product.source_id,
-                    source_variant_id=product.source_variant_id
+                    source_id=product.source_id
                 )
                 continue
             
@@ -352,8 +350,7 @@ async def shopify_product_delete(
                 logger.info(
                     "Product queued for deletion",
                     product_id=str(product.id),
-                    source_id=product.source_id,
-                    source_variant_id=product.source_variant_id
+                    source_id=product.source_id
                 )
             except Exception as e:
                 logger.error(

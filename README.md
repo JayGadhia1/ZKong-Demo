@@ -81,7 +81,7 @@ Create a `.env` file based on `.env.example`:
 
 ```bash
 # ZKong API Configuration
-ZKONG_API_BASE_URL=https://api.zkong.com
+ZKONG_API_BASE_URL=https://esl-eu.zkong.com
 ZKONG_USERNAME=your_zkong_username
 ZKONG_PASSWORD=your_zkong_password
 ZKONG_RSA_PUBLIC_KEY=-----BEGIN PUBLIC KEY-----\nYour RSA Public Key Here\n-----END PUBLIC KEY-----

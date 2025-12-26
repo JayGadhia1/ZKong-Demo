@@ -96,54 +96,41 @@ class ZKongClient:
     async def get_public_key(self) -> str:
         """
         Get RSA public key from ZKong API (section 2.1).
-        Supports both /zk/user/getErpPublicKey and /api/v1/public-key endpoints.
         
         Returns:
             RSA public key string (PEM format)
         """
         try:
-            # Try the endpoint from the API docs first
-            endpoints = ["/zk/user/getErpPublicKey", "/api/v1/public-key"]
+            endpoint = "/zk/user/getErpPublicKey"
+            response = await self.client.get(endpoint)
+            response.raise_for_status()
+            data = response.json()
             
-            for endpoint in endpoints:
-                try:
-                    response = await self.client.get(endpoint)
-                    response.raise_for_status()
-                    data = response.json()
-                    
-                    # Handle different response formats
-                    if data.get("success") and data.get("data"):
-                        # Format: {"success": true, "data": "MIGfMA0G..."}
-                        base64_key = data.get("data")
-                        if base64_key:
-                            # Convert base64 to PEM format
-                            pem_key = "-----BEGIN PUBLIC KEY-----\n"
-                            pem_key += "\n".join([base64_key[i:i+64] for i in range(0, len(base64_key), 64)])
-                            pem_key += "\n-----END PUBLIC KEY-----"
-                            return pem_key
-                    
-                    if data.get("code") == 200 or data.get("code") == 10000:
-                        public_key = data.get("data", {})
-                        if isinstance(public_key, str):
-                            # Already a string (base64), convert to PEM
-                            pem_key = "-----BEGIN PUBLIC KEY-----\n"
-                            pem_key += "\n".join([public_key[i:i+64] for i in range(0, len(public_key), 64)])
-                            pem_key += "\n-----END PUBLIC KEY-----"
-                            return pem_key
-                        elif isinstance(public_key, dict):
-                            public_key_str = public_key.get("public_key")
-                            if public_key_str:
-                                return public_key_str
-                        
-                    if endpoint == endpoints[-1]:  # Last endpoint
-                        raise ZKongAPIError(f"Failed to get public key: {data.get('message')}")
-                        
-                except Exception:
-                    if endpoint == endpoints[-1]:
-                        raise
-                    continue
+            # Handle different response formats
+            if data.get("success") and data.get("data"):
+                # Format: {"success": true, "data": "MIGfMA0G..."}
+                base64_key = data.get("data")
+                if base64_key:
+                    # Convert base64 to PEM format
+                    pem_key = "-----BEGIN PUBLIC KEY-----\n"
+                    pem_key += "\n".join([base64_key[i:i+64] for i in range(0, len(base64_key), 64)])
+                    pem_key += "\n-----END PUBLIC KEY-----"
+                    return pem_key
             
-            raise ZKongAPIError("Public key not found in response")
+            if data.get("code") == 200 or data.get("code") == 10000:
+                public_key = data.get("data", {})
+                if isinstance(public_key, str):
+                    # Already a string (base64), convert to PEM
+                    pem_key = "-----BEGIN PUBLIC KEY-----\n"
+                    pem_key += "\n".join([public_key[i:i+64] for i in range(0, len(public_key), 64)])
+                    pem_key += "\n-----END PUBLIC KEY-----"
+                    return pem_key
+                elif isinstance(public_key, dict):
+                    public_key_str = public_key.get("public_key")
+                    if public_key_str:
+                        return public_key_str
+            
+            raise ZKongAPIError(f"Failed to get public key: {data.get('message')}")
         except httpx.HTTPStatusError as e:
             if 500 <= e.response.status_code < 600:
                 raise TransientError(f"ZKong API error: {e.response.status_code}")
@@ -174,153 +161,114 @@ class ZKongClient:
             encrypted_password = self._encrypt_password(self.password, public_key)
             
             # Login request
-            # Try /zk/user/login first (as shown in Postman testing), fallback to /api/v1/login
             login_data = {
                 "account": self.username,  # ZKong API uses "account" field, not "username"
-                "loginType": 3,  # Login type (3 seems to be for API login)
+                "loginType": 3,  # Login type (3 for API login)
                 "password": encrypted_password
             }
             
-            # Try both endpoints
-            endpoints = ["/zk/user/login", "/api/v1/login"]
-            last_error = None
+            endpoint = "/zk/user/login"
+            response = await self.client.post(endpoint, json=login_data)
+            response.raise_for_status()
+            data = response.json()
             
-            for endpoint in endpoints:
-                try:
-                    response = await self.client.post(endpoint, json=login_data)
-                    response.raise_for_status()
-                    data = response.json()
-                    
-                    # Check if login was successful
-                    # ZKong API returns success: true and code: 14014 for successful login
-                    if data.get("success") is False:
-                        if endpoint == endpoints[-1]:  # Last endpoint
-                            raise ZKongAuthenticationError(
-                                f"Authentication failed: {data.get('message')}"
-                            )
-                        continue  # Try next endpoint
-                    
-                    # If success is True, proceed regardless of code value
-                    if data.get("success") is True:
-                        # Success - proceed to extract token
-                        pass
-                    elif data.get("code") not in [200, 10000]:
-                        # Legacy check for code-based success
-                        if endpoint == endpoints[-1]:
-                            raise ZKongAuthenticationError(
-                                f"Authentication failed: {data.get('message')}"
-                            )
-                        continue
-                    
-                    # ZKong uses token-based authentication
-                    # Extract token from response - check multiple possible locations
-                    import time
-                    token = None
-                    token_data = data.get("data", {})
-                    
-                    # Check for token in response data (common field names)
-                    if isinstance(token_data, dict):
+            # Check if login was successful
+            if data.get("success") is False:
+                raise ZKongAuthenticationError(
+                    f"Authentication failed: {data.get('message')}"
+                )
+            
+            # ZKong uses token-based authentication
+            # Extract token from response - check multiple possible locations
+            import time
+            token = None
+            token_data = data.get("data", {})
+            
+            # Check for token in response data (common field names)
+            if isinstance(token_data, dict):
+                token = (
+                    token_data.get("token") or
+                    token_data.get("access_token") or
+                    token_data.get("accessToken") or
+                    token_data.get("authToken") or
+                    token_data.get("sessionToken")
+                )
+                
+                # Also check currentUser object if it exists
+                if not token:
+                    current_user = token_data.get("currentUser", {})
+                    if isinstance(current_user, dict):
                         token = (
-                            token_data.get("token") or
-                            token_data.get("access_token") or
-                            token_data.get("accessToken") or
-                            token_data.get("authToken") or
-                            token_data.get("sessionToken")
+                            current_user.get("token") or
+                            current_user.get("access_token") or
+                            current_user.get("accessToken")
                         )
-                        
-                        # Also check currentUser object if it exists
-                        if not token:
-                            current_user = token_data.get("currentUser", {})
-                            if isinstance(current_user, dict):
-                                token = (
-                                    current_user.get("token") or
-                                    current_user.get("access_token") or
-                                    current_user.get("accessToken")
-                                )
-                    
-                    # Check response headers for token
-                    if not token:
-                        for header_name in ["X-Auth-Token", "Authorization", "X-Token", "Token"]:
-                            if header_name in response.headers:
-                                token = response.headers[header_name]
-                                break
-                    
-                    # Check top-level response for token
-                    if not token:
-                        token = data.get("token") or data.get("access_token")
-                    
-                    if not token:
-                        # Log full response structure for debugging
-                        logger.error(
-                            "Token not found in ZKong login response",
-                            endpoint=endpoint,
-                            response_keys=list(data.keys()) if isinstance(data, dict) else [],
-                            data_keys=list(token_data.keys()) if isinstance(token_data, dict) else [],
-                            has_currentUser=bool(token_data.get("currentUser")) if isinstance(token_data, dict) else False
-                        )
-                        raise ZKongAuthenticationError("Token not found in authentication response")
-                    
-                    # Store token
-                    self._auth_token = token
-                    self._token_expires_at = time.time() + 3600  # Default 1 hour
-                    
-                    # Extract agencyId and merchantId from login response (required for product import)
-                    # Both are in data.currentUser
-                    if isinstance(token_data, dict):
-                        current_user = token_data.get("currentUser", {})
-                        if isinstance(current_user, dict):
-                            # Extract agencyId
-                            agency_id = current_user.get("agencyId")
-                            if agency_id:
-                                try:
-                                    self._agency_id = int(agency_id)
-                                except (ValueError, TypeError):
-                                    logger.warning(f"Could not convert agencyId to int: {agency_id}")
-                                    self._agency_id = None
-                            
-                            # Extract merchantId
-                            merchant_id = current_user.get("merchantId")
-                            if merchant_id:
-                                try:
-                                    self._merchant_id = int(merchant_id)
-                                except (ValueError, TypeError):
-                                    logger.warning(f"Could not convert merchantId to int: {merchant_id}")
-                                    self._merchant_id = None
-                    
-                    # Fallback to config if not found in response
-                    if self._agency_id is None:
-                        self._agency_id = settings.zkong_agency_id
-                        if self._agency_id == 0:
-                            logger.warning(
-                                "agencyId not found in login response and config is 0. Product import may fail.",
-                                current_user_keys=list(current_user.keys()) if isinstance(current_user, dict) else []
-                            )
-                    
-                    logger.info(
-                        "Successfully authenticated with ZKong API (token-based)",
-                        endpoint=endpoint,
-                        token_length=len(token),
-                        agency_id=self._agency_id,
-                        merchant_id=self._merchant_id
-                    )
-                    
-                    return token
-                    
-                except httpx.HTTPStatusError as e:
-                    last_error = e
-                    if endpoint == endpoints[-1]:
-                        raise
-                    continue
-                except Exception as e:
-                    last_error = e
-                    if endpoint == endpoints[-1]:
-                        raise
-                    continue
             
-            # If we get here, all endpoints failed
-            if last_error:
-                raise last_error
-            raise ZKongAuthenticationError("Authentication failed on all endpoints")
+            # Check response headers for token
+            if not token:
+                for header_name in ["X-Auth-Token", "Authorization", "X-Token", "Token"]:
+                    if header_name in response.headers:
+                        token = response.headers[header_name]
+                        break
+            
+            # Check top-level response for token
+            if not token:
+                token = data.get("token") or data.get("access_token")
+            
+            if not token:
+                logger.error(
+                    "Token not found in ZKong login response",
+                    endpoint=endpoint,
+                    response_keys=list(data.keys()) if isinstance(data, dict) else [],
+                    data_keys=list(token_data.keys()) if isinstance(token_data, dict) else [],
+                    has_currentUser=bool(token_data.get("currentUser")) if isinstance(token_data, dict) else False
+                )
+                raise ZKongAuthenticationError("Token not found in authentication response")
+            
+            # Store token
+            self._auth_token = token
+            self._token_expires_at = time.time() + 3600  # Default 1 hour
+            
+            # Extract agencyId and merchantId from login response (required for product import)
+            # Both are in data.currentUser
+            if isinstance(token_data, dict):
+                current_user = token_data.get("currentUser", {})
+                if isinstance(current_user, dict):
+                    # Extract agencyId
+                    agency_id = current_user.get("agencyId")
+                    if agency_id:
+                        try:
+                            self._agency_id = int(agency_id)
+                        except (ValueError, TypeError):
+                            logger.warning(f"Could not convert agencyId to int: {agency_id}")
+                            self._agency_id = None
+                    
+                    # Extract merchantId
+                    merchant_id = current_user.get("merchantId")
+                    if merchant_id:
+                        try:
+                            self._merchant_id = int(merchant_id)
+                        except (ValueError, TypeError):
+                            logger.warning(f"Could not convert merchantId to int: {merchant_id}")
+                            self._merchant_id = None
+            
+            # Fallback to config if not found in response
+            if self._agency_id is None:
+                self._agency_id = settings.zkong_agency_id
+                if self._agency_id == 0:
+                    logger.warning(
+                        "agencyId not found in login response and config is 0. Product import may fail.",
+                        current_user_keys=list(current_user.keys()) if isinstance(current_user, dict) else []
+                    )
+            
+            logger.info(
+                "Successfully authenticated with ZKong API",
+                token_length=len(token),
+                agency_id=self._agency_id,
+                merchant_id=self._merchant_id
+            )
+            
+            return token
             
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 401:
@@ -428,7 +376,7 @@ class ZKongClient:
                     store_mapping_merchant_id=merchant_id
                 )
             
-            # Log item list to debug productArea field
+            # Log productArea field for troubleshooting
             if item_list:
                 logger.debug(
                     "ZKong import item list",
@@ -452,13 +400,11 @@ class ZKongClient:
             if self._auth_token:
                 headers["Authorization"] = self._auth_token
             
-            # ZKong API endpoint: /zk/item/batchImportItem
-            # Log request details for debugging
-            logger.debug(
-                "Calling ZKong import endpoint",
-                endpoint="/zk/item/batchImportItem",
-                has_auth_header=bool(headers.get("Authorization")),
-                has_token=bool(self._auth_token)
+            # ZKong API endpoint for bulk product import
+            logger.info(
+                "Importing products to ZKong",
+                product_count=len(products),
+                store_id=store_id
             )
             
             response = await self.client.post(
@@ -600,21 +546,18 @@ class ZKongClient:
             # API expects: storeId (Integer, required) and list (List<String>, required)
             # If storeId is empty/null, deletes from all stores under the merchant
             
-            # Build request payload - must match Postman working request exactly
-            # API expects: storeId (Integer, required) and list (List<String>, required)
+            # Build request payload according to ZKong API 3.2
+            # Required: storeId (Integer) and list (List<String>, max 500 items)
             request_data = {
-                "list": barcodes  # List of barcodes to delete (max 500)
+                "list": barcodes
             }
             
-            # Always include storeId - required field (API works with it included)
             if store_id:
                 request_data["storeId"] = int(store_id)
             else:
-                # If no store_id provided, this might delete from all stores
-                # But API docs say it's required, so log a warning
                 logger.warning(
-                    "No store_id provided for delete - may delete from all stores",
-                    barcodes=barcodes
+                    "No store_id provided - will delete from all stores under merchant",
+                    barcode_count=len(barcodes)
                 )
             
             # Build headers - ZKong uses "Authorization: token" format
@@ -624,22 +567,16 @@ class ZKongClient:
             if self._auth_token:
                 headers["Authorization"] = self._auth_token
             
-            # ZKong API endpoint: /zk/item/batchDeleteltem (note: typo in API docs)
+            # ZKong API endpoint for bulk product deletion
             endpoint_path = "/zk/item/batchDeleteItem"
-            full_url = f"{self.base_url}{endpoint_path}"
             
             logger.info(
-                "Calling ZKong delete endpoint",
-                endpoint=endpoint_path,
-                full_url=full_url,
+                "Deleting products from ZKong",
                 barcode_count=len(barcodes),
-                store_id=store_id,
-                barcodes=barcodes[:5]  # Log first 5 barcodes for debugging
+                store_id=store_id
             )
             
-            # Use DELETE method as specified in API docs
-            # httpx.delete() doesn't support json parameter, so use request() method
-            # Note: request() method does support json parameter
+            # Use DELETE method with JSON body
             response = await self.client.request(
                 method="DELETE",
                 url=endpoint_path,
