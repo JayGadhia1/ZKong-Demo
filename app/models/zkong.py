@@ -23,6 +23,7 @@ class ZKongProductImportItem(BaseModel):
     brand: Optional[str] = None
     unit: Optional[str] = None
     specification: Optional[str] = None
+    source_system: Optional[str] = None  # Source system (e.g., "shopify", "amazon") for origin field
 
 
 class ZKongBulkImportRequest(BaseModel):

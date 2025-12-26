@@ -229,7 +229,8 @@ class SyncWorker:
             currency=normalized.get("currency") or product.currency or "USD",
             image_url=normalized.get("image_url") or product.image_url,
             external_id=product.source_id,
-            sku=normalized.get("sku") or product.sku
+            sku=normalized.get("sku") or product.sku,
+            source_system=product.source_system  # Pass source system for origin field
         )
         
         # Import to ZKong (bulk import with single item)

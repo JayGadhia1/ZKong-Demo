@@ -399,6 +399,11 @@ class ZKongClient:
                 if p.image_url:
                     item["qrCode"] = p.image_url  # QR code URL field
                 
+                # Add origin field with source system (e.g., "shopify", "amazon", etc.)
+                # This helps track where the product came from in the ESL system
+                if p.source_system:
+                    item["origin"] = p.source_system
+                
                 item_list.append(item)
             
             # Build request payload
