@@ -4,6 +4,7 @@ Implements authentication (2.1-2.2), product import (3.1), and image upload (3.3
 """
 import base64
 import httpx
+import json
 import structlog
 from typing import Optional, Dict, Any, List
 from cryptography.hazmat.primitives import hashes, serialization
@@ -633,9 +634,11 @@ class ZKongClient:
             )
             
             # Use DELETE method as specified in API docs
-            response = await self.client.delete(
-                "/zk/item/batchDeleteltem",
-                json=request_data,
+            # httpx.delete() doesn't support json parameter, so use request() method
+            response = await self.client.request(
+                method="DELETE",
+                url="/zk/item/batchDeleteltem",
+                content=json.dumps(request_data).encode('utf-8'),
                 headers=headers
             )
             response.raise_for_status()
