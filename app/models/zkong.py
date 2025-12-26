@@ -58,3 +58,10 @@ class ZKongImageUploadResponse(BaseModel):
     message: str
     data: Optional[Dict[str, Any]] = None  # Contains image_url, image_id, etc.
 
+
+class ZKongProductDeleteResponse(BaseModel):
+    """Response from bulk product delete (section 3.2)."""
+    code: int
+    message: str
+    data: Optional[Dict[str, Any]] = None
+

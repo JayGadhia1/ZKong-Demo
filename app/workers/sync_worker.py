@@ -333,31 +333,55 @@ class SyncWorker:
             )
             return
         
+        # Get barcode for deletion - required by ZKong API
+        barcode = zkong_mapping.zkong_barcode or product.barcode
+        if not barcode:
+            raise Exception("Barcode is required for ZKong product deletion")
+        
         # Log deletion request
         logger.info(
             "Processing product deletion",
             product_id=str(product.id),
             zkong_product_id=zkong_mapping.zkong_product_id,
-            zkong_barcode=zkong_mapping.zkong_barcode,
+            zkong_barcode=barcode,
             source_id=product.source_id
         )
         
-        # Note: ZKong API documentation doesn't specify a delete endpoint
-        # If a delete endpoint becomes available, it should be called here
-        # For now, we log the deletion and the ZKong mapping can be cleaned up
-        # by removing it from the zkong_products table if needed
+        # Call ZKong delete API (section 3.2)
+        response = await self.zkong_client.delete_products_bulk(
+            barcodes=[barcode],
+            merchant_id=store_mapping.zkong_merchant_id,
+            store_id=store_mapping.zkong_store_id
+        )
         
-        # The product deletion is considered successful if we've processed it
-        # The ZKong product may remain in their system, but we've queued the deletion
-        # In a production system, you might want to:
-        # 1. Call a ZKong delete API endpoint if available
-        # 2. Remove the zkong_products mapping
-        # 3. Mark the product as deleted in the products table
+        # Check if deletion was successful
+        # ZKong uses various success codes (200, 14014, 10000, etc.)
+        is_success = (
+            response.code == 200 or
+            response.code == 14014 or
+            response.code == 10000 or
+            (response.message and "成功" in str(response.message)) or  # "成功" means "success" in Chinese
+            (response.message and "success" in str(response.message).lower())
+        )
+        
+        if not is_success:
+            raise ZKongAPIError(
+                f"ZKong delete failed: {response.message} (code: {response.code})"
+            )
+        
+        # Log success even if code isn't 200
+        if response.code != 200:
+            logger.info(
+                "ZKong delete successful with non-200 code",
+                code=response.code,
+                message=response.message
+            )
         
         logger.info(
-            "Product deletion processed",
+            "Product successfully deleted from ZKong",
             product_id=str(product.id),
-            zkong_product_id=zkong_mapping.zkong_product_id
+            zkong_product_id=zkong_mapping.zkong_product_id,
+            barcode=barcode
         )
 
 

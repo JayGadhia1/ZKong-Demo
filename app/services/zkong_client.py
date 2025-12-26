@@ -15,7 +15,8 @@ from app.models.zkong import (
     ZKongBulkImportRequest,
     ZKongAuthResponse,
     ZKongProductImportResponse,
-    ZKongImageUploadResponse
+    ZKongImageUploadResponse,
+    ZKongProductDeleteResponse
 )
 from app.utils.retry import retry_with_backoff, TransientError, PermanentError
 
@@ -562,6 +563,97 @@ class ZKongClient:
             raise PermanentError(f"ZKong API error: {e.response.status_code}")
         except Exception as e:
             raise ZKongAPIError(f"Failed to upload product image: {str(e)}")
+    
+    @retry_with_backoff(
+        max_attempts=3,
+        initial_delay=1.0,
+        multiplier=2.0
+    )
+    async def delete_products_bulk(
+        self,
+        barcodes: List[str],
+        merchant_id: str,
+        store_id: Optional[str] = None
+    ) -> ZKongProductDeleteResponse:
+        """
+        Delete products in bulk from ZKong (section 3.2).
+        
+        Args:
+            barcodes: List of product barcodes to delete (max 500)
+            merchant_id: ZKong merchant ID
+            store_id: Optional ZKong store ID. If empty, deletes from all stores under merchant
+            
+        Returns:
+            Delete response from ZKong API
+        """
+        await self._ensure_authenticated()
+        
+        if not barcodes:
+            raise ZKongAPIError("Barcodes list cannot be empty")
+        
+        if len(barcodes) > 500:
+            raise ZKongAPIError("Cannot delete more than 500 products at once")
+        
+        try:
+            # Build request payload according to ZKong API 3.2 section 3.2
+            # Use agencyId and merchantId from login response if available
+            agency_id = self._agency_id if self._agency_id is not None else settings.zkong_agency_id
+            merchant_id_to_use = self._merchant_id if self._merchant_id is not None else int(merchant_id)
+            
+            if self._merchant_id is not None and str(self._merchant_id) != str(merchant_id):
+                logger.warning(
+                    "Merchant ID mismatch - using merchantId from login response instead of provided",
+                    login_merchant_id=self._merchant_id,
+                    provided_merchant_id=merchant_id
+                )
+            
+            request_data = {
+                "merchantId": int(merchant_id_to_use),
+                "agencyId": int(agency_id),
+                "barcodes": barcodes  # List of barcodes to delete
+            }
+            
+            # Add storeId if provided (optional - if empty, deletes from all stores)
+            if store_id:
+                request_data["storeId"] = int(store_id)
+            
+            # Build headers - ZKong uses "Authorization: token" format
+            headers = {
+                "Content-Type": "application/json;charset=utf-8"
+            }
+            if self._auth_token:
+                headers["Authorization"] = self._auth_token
+            
+            # ZKong API endpoint: /zk/item/batchDeleteltem (note: typo in API docs)
+            logger.debug(
+                "Calling ZKong delete endpoint",
+                endpoint="/zk/item/batchDeleteltem",
+                barcode_count=len(barcodes),
+                store_id=store_id
+            )
+            
+            # Use DELETE method as specified in API docs
+            response = await self.client.delete(
+                "/zk/item/batchDeleteltem",
+                json=request_data,
+                headers=headers
+            )
+            response.raise_for_status()
+            
+            data = response.json()
+            return ZKongProductDeleteResponse(**data)
+            
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 401:
+                # Authentication failed - re-authenticate
+                self._auth_token = None
+                await self._ensure_authenticated()
+                raise TransientError("Authentication expired (token), will retry after re-authentication")
+            if 500 <= e.response.status_code < 600:
+                raise TransientError(f"ZKong API error: {e.response.status_code}")
+            raise PermanentError(f"ZKong API error: {e.response.status_code} - {e.response.text}")
+        except Exception as e:
+            raise ZKongAPIError(f"Failed to delete products: {str(e)}")
     
     async def close(self):
         """Close HTTP client."""
