@@ -2,10 +2,11 @@
 FastAPI application entry point.
 Initializes the FastAPI app, configures logging, and includes webhook routes.
 """
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.utils.logger import configure_logging
-from app.routers import webhooks, store_mappings
+from app.routers import webhooks, store_mappings, webhooks_new
 import structlog
 
 # Configure logging first
@@ -16,7 +17,7 @@ logger = structlog.get_logger()
 app = FastAPI(
     title="ZKong ESL Integration Middleware",
     description="Middleware for syncing Shopify products to ZKong ESL system",
-    version="1.0.0"
+    version="1.0.0",
 )
 
 # Configure CORS
@@ -29,7 +30,8 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(webhooks.router)
+app.include_router(webhooks.router)  # Legacy routes for backward compatibility
+app.include_router(webhooks_new.router)  # New generic integration router
 app.include_router(store_mappings.router)
 
 
@@ -51,7 +53,7 @@ async def root():
     return {
         "service": "ZKong ESL Integration Middleware",
         "version": "1.0.0",
-        "status": "running"
+        "status": "running",
     }
 
 
@@ -63,10 +65,5 @@ async def health():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(
-        "app.main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True
-    )
 
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)

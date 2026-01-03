@@ -2,6 +2,7 @@
 Pydantic models for Supabase database tables.
 These models represent the structure of data stored in Supabase.
 """
+
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
 from datetime import datetime
@@ -10,6 +11,7 @@ from uuid import UUID
 
 class StoreMapping(BaseModel):
     """Model for store_mappings table."""
+
     id: Optional[UUID] = None
     source_system: str
     source_store_id: str
@@ -23,6 +25,7 @@ class StoreMapping(BaseModel):
 
 class Product(BaseModel):
     """Model for products table."""
+
     id: Optional[UUID] = None
     source_system: str
     source_id: str
@@ -43,6 +46,7 @@ class Product(BaseModel):
 
 class SyncQueueItem(BaseModel):
     """Model for sync_queue table."""
+
     id: Optional[UUID] = None
     product_id: UUID
     store_mapping_id: UUID
@@ -60,6 +64,7 @@ class SyncQueueItem(BaseModel):
 
 class SyncLog(BaseModel):
     """Model for sync_log table."""
+
     id: Optional[UUID] = None
     sync_queue_id: Optional[UUID] = None
     product_id: Optional[UUID] = None
@@ -77,6 +82,7 @@ class SyncLog(BaseModel):
 
 class ZKongProduct(BaseModel):
     """Model for zkong_products table."""
+
     id: Optional[UUID] = None
     product_id: UUID
     store_mapping_id: UUID
@@ -85,4 +91,3 @@ class ZKongProduct(BaseModel):
     last_synced_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
-
