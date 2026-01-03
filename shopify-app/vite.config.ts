@@ -5,13 +5,26 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 3000,
+    port: parseInt(process.env.PORT || "3000"),
     host: true,
     strictPort: true,
     // Proxy API calls to FastAPI backend
     proxy: {
       "/api": {
-        target: "http://localhost:8000",
+        target: process.env.BACKEND_URL || "http://localhost:8000",
+        changeOrigin: true,
+        secure: false,
+      },
+    },
+  },
+  preview: {
+    port: parseInt(process.env.PORT || "3000"),
+    host: true,
+    strictPort: true,
+    // Proxy API calls to FastAPI backend in preview mode
+    proxy: {
+      "/api": {
+        target: process.env.BACKEND_URL || "http://localhost:8000",
         changeOrigin: true,
         secure: false,
       },
