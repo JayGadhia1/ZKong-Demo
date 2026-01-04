@@ -6,6 +6,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: parseInt(process.env.PORT || "3000"),
+    allowedHosts: ["shopify-app-production-e35f.up.railway.app"],
     host: true,
     strictPort: true,
     // Proxy API calls to FastAPI backend
