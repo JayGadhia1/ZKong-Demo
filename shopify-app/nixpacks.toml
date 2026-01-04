@@ -1,0 +1,12 @@
+[phases.setup]
+nixPkgs = ["nodejs_20"]
+
+[phases.install]
+cmds = ["cd shopify-app && npm ci"]
+
+[phases.build]
+cmds = ["cd shopify-app && npm run build"]
+
+[start]
+cmd = "cd shopify-app && npm start"
+
