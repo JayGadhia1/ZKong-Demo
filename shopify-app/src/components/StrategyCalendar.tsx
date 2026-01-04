@@ -6,7 +6,6 @@ import {
   Select,
   TextField,
   FormLayout,
-  TimePicker,
   DatePicker,
   Checkbox,
   Banner,
@@ -200,13 +199,13 @@ export function StrategyCalendar() {
     <Card>
       <FormLayout>
         {submitError && (
-          <Banner status="critical" onDismiss={() => setSubmitError(null)}>
+          <Banner tone="critical" onDismiss={() => setSubmitError(null)}>
             {submitError}
           </Banner>
         )}
 
         {submitSuccess && (
-          <Banner status="success" onDismiss={() => setSubmitSuccess(false)}>
+          <Banner tone="success" onDismiss={() => setSubmitSuccess(false)}>
             Strategy created successfully!
           </Banner>
         )}
@@ -230,9 +229,10 @@ export function StrategyCalendar() {
                 startDate: new Date(year, month, formData.startDate.getDate()),
               })
             }
-            onChange={(date) =>
-              setFormData({ ...formData, startDate: date as Date })
-            }
+            onChange={(range) => {
+              const startDate = new Date(range.start);
+              setFormData({ ...formData, startDate });
+            }}
           />
           <DatePicker
             month={formData.endDate.getMonth()}
@@ -244,9 +244,10 @@ export function StrategyCalendar() {
                 endDate: new Date(year, month, formData.endDate.getDate()),
               })
             }
-            onChange={(date) =>
-              setFormData({ ...formData, endDate: date as Date })
-            }
+            onChange={(range) => {
+              const endDate = new Date(range.start);
+              setFormData({ ...formData, endDate });
+            }}
           />
         </FormLayout.Group>
 
@@ -290,12 +291,14 @@ export function StrategyCalendar() {
               type="time"
               value={slot.startTime}
               onChange={(value) => updateTimeSlot(index, "startTime", value)}
+              autoComplete="off"
             />
             <TextField
               label="End Time"
               type="time"
               value={slot.endTime}
               onChange={(value) => updateTimeSlot(index, "endTime", value)}
+              autoComplete="off"
             />
             {formData.timeSlots.length > 1 && (
               <Button onClick={() => removeTimeSlot(index)}>Remove</Button>
@@ -303,6 +306,34 @@ export function StrategyCalendar() {
           </FormLayout.Group>
         ))}
         <Button onClick={addTimeSlot}>Add Time Window</Button>
+
+        <TextField
+          label="Product Barcode"
+          value={formData.barcode}
+          onChange={(value) => setFormData({ ...formData, barcode: value })}
+          placeholder="Enter product barcode"
+          autoComplete="off"
+        />
+
+        <TextField
+          label="ZKong Item ID (Optional)"
+          value={formData.itemId}
+          onChange={(value) => setFormData({ ...formData, itemId: value })}
+          placeholder="ZKong internal item ID"
+          autoComplete="off"
+          helpText="Leave empty if using barcode lookup"
+        />
+
+        <TextField
+          label="Original Price (Optional)"
+          type="number"
+          value={formData.originalPrice}
+          onChange={(value) =>
+            setFormData({ ...formData, originalPrice: value })
+          }
+          prefix="$"
+          autoComplete="off"
+        />
 
         <TextField
           label="Promotional Price"
@@ -326,10 +357,13 @@ export function StrategyCalendar() {
         />
 
         <Button
-          primary
+          variant="primary"
           loading={isSubmitting}
           onClick={handleSubmit}
-          disabled={!formData.name || formData.products.length === 0}
+          disabled={
+            !formData.name ||
+            (!formData.barcode && formData.products.length === 0)
+          }
         >
           Create Strategy
         </Button>
